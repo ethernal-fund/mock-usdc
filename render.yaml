@@ -1,0 +1,124 @@
+# ============================================================================
+# render.yaml - Ethernal Faucet API
+# Infrastructure as Code para Render.com
+# Docs: https://render.com/docs/blueprint-spec
+# ============================================================================
+
+services:
+  - type: web
+    name: ethernal-faucet-api
+    runtime: python
+    region: oregon
+    plan: free              
+    pythonVersion: "3.12"
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    healthCheckPath: /health
+
+    autoDeploy: true
+
+    envVars:
+      # ── Entorno 
+      - key: ENVIRONMENT
+        value: production
+
+      - key: DEBUG
+        value: "false"
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      # ── Blockchain 
+      - key: RPC_URL
+        value: https://sepolia-rollup.arbitrum.io/rpc
+
+      - key: CHAIN_ID
+        value: "421614"
+
+      - key: NETWORK_NAME
+        value: Arbitrum Sepolia
+
+      - key: EXPLORER_URL
+        value: https://sepolia.arbiscan.io
+
+      - key: CONTRACT_ADDRESS
+        sync: false           # Cargar manualmente en el dashboard de Render
+
+      - key: FAUCET_ADDRESS
+        sync: false           # Cargar manualmente en el dashboard de Render
+
+      - key: FAUCET_PRIVATE_KEY
+        sync: false           # ⚠️  NUNCA hardcodear — solo via dashboard
+
+      - key: FAUCET_AMOUNT
+        value: "10000.0"
+
+      - key: FAUCET_ETH_AMOUNT
+        value: "0.1"
+
+      - key: FAUCET_MIN_BALANCE_ALERT
+        value: "10000.0"
+
+      # ── Base de datos 
+      - key: DATABASE_URL
+        sync: false           # Cargar manualmente en el dashboard de Render
+
+      - key: ENABLE_DB
+        value: "true"
+
+      - key: DB_ECHO
+        value: "false"
+
+      - key: DB_POOL_SIZE
+        value: "5"
+
+      - key: DB_MAX_OVERFLOW
+        value: "10"
+
+      # ── Rate Limiting 
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+
+      - key: RATE_LIMIT_IP_SECONDS
+        value: "3600"
+
+      - key: RATE_LIMIT_WALLET_SECONDS
+        value: "86400"
+
+      # ── Redis (desactivado por defecto)
+      - key: ENABLE_REDIS
+        value: "false"
+
+      - key: REDIS_URL
+        sync: false
+
+      # ── Celery (desactivado por defecto) 
+      - key: ENABLE_CELERY
+        value: "false"
+
+      # ── CORS 
+      - key: CORS_ORIGINS
+        value: "https://www.ethernal.fund,https://ethernal.fund"
+
+      # ── Seguridad 
+      - key: ADMIN_API_KEY
+        sync: false           # Cargar manualmente en el dashboard de Render
+
+      # ── Turnstile (desactivado por defecto)
+      - key: TURNSTILE_ENABLED
+        value: "false"
+
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+
+      # ── Sentry (desactivado por defecto) ─
+      - key: SENTRY_ENABLED
+        value: "false"
+
+      - key: SENTRY_DSN
+        sync: false
+
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.2"

@@ -1,0 +1,120 @@
+# ============================================================================
+# .gitignore - Ethernal Faucet API
+# Python 3.12.3 | FastAPI | Celery | Web3 | PostgreSQL | Redis
+# ============================================================================
+
+# ── Environment Variables ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+env/
+.example
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+.eggs/
+MANIFEST
+
+# ── Virtual Environments ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ── Package Managers ─────────────────────────────────────────────────────────
+pip-log.txt
+pip-delete-this-directory.txt
+poetry.lock       
+# Pipfile.lock
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.coveragerc
+nosetests.xml
+test-results/
+.tox/
+
+# ── Type Checking ────────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
+
+# ── Linting & Formatting ─────────────────────────────────────────────────────
+.ruff_cache/
+
+# ── Database ─────────────────────────────────────────────────────────────────
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# ── Alembic ──────────────────────────────────────────────────────────────────
+# NO ignorar alembic/versions/ — las migraciones deben commitearse
+alembic/tmp/
+
+# ── Celery ───────────────────────────────────────────────────────────────────
+celerybeat-schedule
+celerybeat-schedule.*
+celerybeat.pid
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+log/
+
+# ── IDEs & Editors ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Jupyter ───────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Docker (archivos locales) ────────────────────────────────────────────────
+.dockerignore
+docker-compose.override.yml
+
+# ── Secrets & Keys ───────────────────────────────────────────────────────────
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+keystore/
+
+# ── Web3 / Blockchain ────────────────────────────────────────────────────────
+.brownie/
+build/contracts/
+reports/
+
+# ── Render ───────────────────────────────────────────────────────────────────
+.render-buildpacks.json
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+.cache/
+.tmp/
+tmp/
+temp/
