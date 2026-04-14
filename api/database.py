@@ -18,7 +18,6 @@ engine              = None
 async_session_maker = None
 
 def _build_engine(db_url: str):
-    # Normalizar URL a asyncpg
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif db_url.startswith("postgresql://"):
@@ -33,7 +32,6 @@ def _build_engine(db_url: str):
         echo=settings.DB_ECHO,
         pool_size=settings.DB_POOL_SIZE,
         max_overflow=settings.DB_MAX_OVERFLOW,
-        # NullPool en tests para evitar conexiones colgadas
         poolclass=NullPool if settings.ENVIRONMENT == "test" else None,
         connect_args={
             "ssl": ssl_ctx,
@@ -59,9 +57,7 @@ async def create_schema_and_tables() -> None:
     if not engine:
         return
     async with engine.begin() as conn:
-        # Crear schema propio — idempotente, seguro correr múltiples veces
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS faucet"))
-        # Crear tablas solo dentro del schema 'faucet'
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Schema 'faucet' y tablas listas")
 
