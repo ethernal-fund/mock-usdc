@@ -13,7 +13,6 @@ from .config import settings
 from .models import Base
 
 logger = logging.getLogger(__name__)
-
 engine              = None
 async_session_maker = None
 
@@ -36,6 +35,8 @@ def _build_engine(db_url: str):
         connect_args={
             "ssl": ssl_ctx,
             "server_settings": {"client_encoding": "utf8"},
+            "statement_cache_size": 0,     
+            "prepared_statement_cache_size": 0,  
         },
     )
 
@@ -66,7 +67,6 @@ async def drop_tables() -> None:
         return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-
     logger.warning("Tablas del schema 'faucet' eliminadas")
 
 @asynccontextmanager
@@ -88,5 +88,4 @@ async def close_db() -> None:
     global engine
     if engine:
         await engine.dispose()
-        logger.info("Conexión de base de datos cerrada")
-        
+        logger.info("Conexión de base de datos cerrada")    
