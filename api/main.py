@@ -227,7 +227,10 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
         eth_tx_hash = faucet_service.send_eth(address, eth_amount)
         logger.info(f"ETH enviado → {address} | tx: {eth_tx_hash}")
     except Exception as e:
-        logger.warning(f"ETH send falló para {address} (no crítico): {e}")
+        logger.error(
+            f"ETH send FALLÓ para {address}: {e} | "
+            f"Verificar balance ETH del faucet en: {settings.FAUCET_ADDRESS}"
+        )
 
     rate_limiter.record_request(client_ip, address)
     if settings.ENABLE_DB:
@@ -317,7 +320,6 @@ async def admin_stats():
         "faucet_usdc_balance": faucet_service.get_balance(settings.FAUCET_ADDRESS),
         "faucet_eth_balance":  faucet_service.get_eth_balance(settings.FAUCET_ADDRESS),
     }
-
 
 @app.get(
     "/admin/requests",

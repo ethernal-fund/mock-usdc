@@ -179,16 +179,30 @@ class FaucetService:
         try:
             to_address = Web3.to_checksum_address(to_address)
             amount_wei = self.w3.to_wei(amount_eth, 'ether')
+
+            faucet_eth_balance = self.w3.eth.get_balance(self.account.address)
+            required_wei = amount_wei + self.w3.to_wei(0.001, 'ether')  # buffer para gas
+            if faucet_eth_balance < required_wei:
+                raise Exception(
+                    f"Faucet ETH balance insuficiente: "
+                    f"{self.w3.from_wei(faucet_eth_balance, 'ether'):.6f} ETH disponible, "
+                    f"se necesita {amount_eth} ETH + gas"
+                )
+
             latest_block = self.w3.eth.get_block('latest')
             base_fee = latest_block['baseFeePerGas']
             max_priority_fee = self.w3.to_wei(0.1, 'gwei')
             max_fee_per_gas = base_fee * 2 + max_priority_fee
+
+            nonce = self.w3.eth.get_transaction_count(self.account.address, 'pending')
+            logger.info(f"send_eth nonce (pending): {nonce}")
+
             tx = {
                 'chainId': int(os.getenv("CHAIN_ID", "421614")),
                 'from': self.account.address,
                 'to': to_address,
                 'value': amount_wei,
-                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+                'nonce': nonce,
                 'gas': 21000,
                 'maxFeePerGas': max_fee_per_gas,
                 'maxPriorityFeePerGas': max_priority_fee,
