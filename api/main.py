@@ -52,6 +52,7 @@ def _build_allowed_origins() -> list[str]:
         ]
     return origins
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Iniciando {settings.APP_NAME} v{settings.APP_VERSION}")
@@ -101,9 +102,10 @@ rate_limiter   = RateLimiter()
 SUPPORTED_NETWORKS = list(NETWORK_CONFIGS.keys())  # ["sepolia", "arbitrum-sepolia"]
 
 class FaucetRequestModel(BaseModel):
-    address:         str            = Field(...,        description="Dirección Ethereum (0x...)")
-    network:         str            = Field(...,        description=f"Red destino: {SUPPORTED_NETWORKS}")
-    turnstile_token: Optional[str]  = Field(None,       description="Token Cloudflare Turnstile")
+    address:         str           = Field(..., description="Dirección Ethereum (0x...)")
+    network:         str           = Field(..., description=f"Red destino: {SUPPORTED_NETWORKS}")
+    turnstile_token: Optional[str] = Field(None, description="Token Cloudflare Turnstile")
+
     @validator("address")
     def validate_address(cls, v: str) -> str:
         if not Web3.is_address(v):
@@ -117,15 +119,15 @@ class FaucetRequestModel(BaseModel):
         return v
 
 class FaucetResponse(BaseModel):
-    success:      bool
-    message:      str
-    network:      Optional[str]   = None
-    tx_hash:      Optional[str]   = None
-    eth_tx_hash:  Optional[str]   = None
-    amount:       Optional[float] = None
-    eth_amount:   Optional[float] = None
-    balance:      Optional[float] = None
-    wait_time:    Optional[int]   = None
+    success:     bool
+    message:     str
+    network:     Optional[str]   = None
+    tx_hash:     Optional[str]   = None
+    eth_tx_hash: Optional[str]   = None
+    amount:      Optional[float] = None
+    eth_amount:  Optional[float] = None
+    balance:     Optional[float] = None
+    wait_time:   Optional[int]   = None
 
 # ── Auth admin ────────────────────────────────────────────────────────────────
 
@@ -137,17 +139,34 @@ async def verify_admin_key(request: Request) -> bool:
         raise HTTPException(status_code=403, detail="API key inválida")
     return True
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _get_client_ip(request: Request) -> str:
+    """
+    Extrae la IP real del usuario.
+    - Cuando llega directo del browser: usa X-Forwarded-For de Render o client.host.
+    - Cuando llega via proxy del backend: el backend propaga X-Real-IP con la IP
+      del usuario original, por lo que esa tiene prioridad.
+    """
+    real_ip   = request.headers.get("X-Real-IP", "").strip()
+    forwarded = request.headers.get("X-Forwarded-For", "").strip()
+
+    if real_ip:
+        return real_ip
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/", tags=["info"])
 async def root():
     return {
-        "name":              settings.APP_NAME,
-        "version":           settings.APP_VERSION,
-        "environment":       settings.ENVIRONMENT,
+        "name":               settings.APP_NAME,
+        "version":            settings.APP_VERSION,
+        "environment":        settings.ENVIRONMENT,
         "supported_networks": SUPPORTED_NETWORKS,
-        "active_networks":   faucet_service.active_networks,
+        "active_networks":    faucet_service.active_networks,
         "features": {
             "database":  settings.ENABLE_DB,
             "redis":     settings.ENABLE_REDIS,
@@ -161,13 +180,13 @@ async def health_check():
         networks_status = {}
         overall_ok = True
         for net_key in faucet_service.active_networks:
-            client = faucet_service.get_client(net_key)
+            client       = faucet_service.get_client(net_key)
             connected    = client.w3.is_connected()
             usdc_balance = client.get_usdc_balance(settings.FAUCET_ADDRESS)
             eth_balance  = client.get_eth_balance(settings.FAUCET_ADDRESS)
             net_ok       = connected and usdc_balance > 0
             networks_status[net_key] = {
-                "name":         client.name,
+                "name":          client.name,
                 "rpc_connected": connected,
                 "usdc_balance":  usdc_balance,
                 "eth_balance":   eth_balance,
@@ -191,7 +210,7 @@ async def health_check():
 
 @app.post("/faucet", response_model=FaucetResponse, tags=["faucet"])
 async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
-    client_ip = request.client.host
+    client_ip = _get_client_ip(request)   # ← IP real, incluso cuando viene por proxy
     address   = faucet_req.address
     network   = faucet_req.network
 
@@ -201,7 +220,7 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Rate limiting — la key incluye la red para que cada chain tenga su propio cooldown
+    # Rate limiting — la key incluye la red para cooldown independiente por chain
     if settings.RATE_LIMIT_ENABLED:
         ip_key     = f"{client_ip}:{network}"
         wallet_key = f"{address}:{network}"
@@ -305,7 +324,7 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
 
 @app.get("/networks", tags=["info"])
 async def get_networks():
-    """Devuelve las redes disponibles y su estado actual — útil para el frontend."""
+    """Devuelve las redes disponibles y su estado actual."""
     result = {}
     for net_key in faucet_service.active_networks:
         cfg = NETWORK_CONFIGS[net_key]
@@ -344,18 +363,18 @@ async def get_stats():
         for net_key in faucet_service.active_networks:
             client = faucet_service.get_client(net_key)
             networks_bal[net_key] = {
-                "usdc_balance": client.get_usdc_balance(settings.FAUCET_ADDRESS),
-                "eth_balance":  client.get_eth_balance(settings.FAUCET_ADDRESS),
+                "usdc_balance":    client.get_usdc_balance(settings.FAUCET_ADDRESS),
+                "eth_balance":     client.get_eth_balance(settings.FAUCET_ADDRESS),
                 "eth_per_request": client.eth_amount,
             }
         return {
-            "faucet_wallet":      settings.FAUCET_ADDRESS,
-            "networks":           networks_bal,
-            "total_requests":     stats["total_requests"],
-            "unique_wallets":     stats["unique_wallets"],
-            "unique_ips":         stats["unique_ips"],
-            "usdc_per_request":   settings.FAUCET_AMOUNT,
-            "using_redis":        stats["using_redis"],
+            "faucet_wallet":    settings.FAUCET_ADDRESS,
+            "networks":         networks_bal,
+            "total_requests":   stats["total_requests"],
+            "unique_wallets":   stats["unique_wallets"],
+            "unique_ips":       stats["unique_ips"],
+            "usdc_per_request": settings.FAUCET_AMOUNT,
+            "using_redis":      stats["using_redis"],
             "rate_limits": {
                 "per_ip_seconds":     settings.RATE_LIMIT_IP_SECONDS,
                 "per_wallet_seconds": settings.RATE_LIMIT_WALLET_SECONDS,
@@ -408,17 +427,17 @@ async def admin_requests(limit: int = 50, offset: int = 0, status: Optional[str]
     return {
         "requests": [
             {
-                "id":             r.id,
+                "id":            r.id,
                 "wallet_address": r.wallet_address,
-                "ip_address":     r.ip_address,
-                "amount":         float(r.amount),
-                "eth_amount":     float(r.eth_amount) if r.eth_amount else None,
-                "tx_hash":        r.tx_hash,
-                "eth_tx_hash":    r.eth_tx_hash,
-                "status":         r.status,
-                "error_message":  r.error_message,
-                "created_at":     r.created_at.isoformat() if r.created_at else None,
-                "completed_at":   r.completed_at.isoformat() if r.completed_at else None,
+                "ip_address":    r.ip_address,
+                "amount":        float(r.amount),
+                "eth_amount":    float(r.eth_amount) if r.eth_amount else None,
+                "tx_hash":       r.tx_hash,
+                "eth_tx_hash":   r.eth_tx_hash,
+                "status":        r.status,
+                "error_message": r.error_message,
+                "created_at":    r.created_at.isoformat() if r.created_at else None,
+                "completed_at":  r.completed_at.isoformat() if r.completed_at else None,
             }
             for r in rows
         ],
