@@ -61,20 +61,53 @@ MINIMAL_ERC20_ABI = [
 ]
 
 def _load_abi() -> list:
-    """Intenta cargar el ABI desde archivo; cae al ABI mínimo embebido."""
-    abi_path = Path(__file__).parent.parent / "out" / "MockUSDC.json"
-    if abi_path.exists():
-        with open(abi_path) as f:
-            raw = json.load(f)
-            abi = raw.get("abi", raw) if isinstance(raw, dict) else raw
-        logger.info(f"ABI cargado desde {abi_path}")
-        return abi
-    logger.warning("ABI file no encontrado — usando ABI mínimo embebido")
+    """
+    Carga el ABI desde los archivos de deployment commiteados al repo.
+
+    Estructura esperada:
+        deployments/
+          arbitrum/sepolia/MockUSDC.json
+          ethereum/sepolia/MockUSDC.json
+
+    Cada archivo tiene la forma:
+        { "abi": [...], "address": "0x...", ... }
+
+    El ABI es idéntico en todos los deployments (mismo contrato, distinta chain).
+    Se usa el primero que se encuentre válido. Si ninguno existe, se cae al
+    ABI mínimo embebido y se emite ERROR para que sea visible en producción.
+    """
+    repo_root = Path(__file__).parent.parent
+    candidates = [
+        repo_root / "deployments" / "arbitrum" / "sepolia" / "MockUSDC.json",
+        repo_root / "deployments" / "ethereum" / "sepolia" / "MockUSDC.json",
+    ]
+
+    for abi_path in candidates:
+        if not abi_path.exists():
+            logger.debug(f"Deployment file no encontrado: {abi_path}")
+            continue
+        try:
+            with open(abi_path) as f:
+                raw = json.load(f)
+            abi = raw.get("abi") if isinstance(raw, dict) else raw
+            if not isinstance(abi, list) or not abi:
+                raise ValueError("Campo 'abi' ausente o vacío")
+            logger.info(
+                f"ABI cargado desde {abi_path.relative_to(repo_root)} "
+                f"({len(abi)} entradas)"
+            )
+            return abi
+        except Exception as e:
+            logger.error(f"Error leyendo ABI desde {abi_path}: {e}")
+
+    logger.error(
+        "No se encontró ningún deployment file en deployments/*/sepolia/MockUSDC.json "
+        "— usando ABI mínimo embebido. Commitear los archivos al repo para resolver."
+    )
     return MINIMAL_ERC20_ABI
 
 class NetworkClient:
     """Conexión a una red específica: w3 + contrato + wallet."""
-
     def __init__(self, network_key: str, network_cfg: dict, private_key: str, abi: list):
         self.key          = network_key
         self.name         = network_cfg["name"]
@@ -96,7 +129,7 @@ class NetworkClient:
             f"| wallet: {self.account.address}"
         )
 
-    # ── Lecturas ──────────────────────────────────────────────────────────────
+    # Lecturas 
 
     def get_usdc_balance(self, address: str) -> float:
         balance  = self.contract.functions.balanceOf(Web3.to_checksum_address(address)).call()
@@ -107,7 +140,7 @@ class NetworkClient:
         balance_wei = self.w3.eth.get_balance(Web3.to_checksum_address(address))
         return float(self.w3.from_wei(balance_wei, "ether"))
 
-    # ── Transacciones ─────────────────────────────────────────────────────────
+    # Transacciones 
 
     def send_tokens(self, to_address: str, amount: float) -> str:
         to_address = Web3.to_checksum_address(to_address)
@@ -177,7 +210,6 @@ class NetworkClient:
             raise Exception(f"[{self.name}] Transacción ETH revertida on-chain")
         logger.info(f"[{self.name}] ETH enviado a {to_address} | tx: {tx_hash.hex()}")
         return tx_hash.hex()
-
 
 class FaucetService:
     """
