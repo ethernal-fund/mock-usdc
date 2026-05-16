@@ -65,7 +65,6 @@ CONSTRUCTOR_ARGS = {
     "_decimals": 6,
 }
 
-
 def get_encoded_args() -> str:
     encoded = encode(
         ["string", "string", "uint8"],
@@ -77,12 +76,10 @@ def get_encoded_args() -> str:
     )
     return encoded.hex()
 
-
 def deploy_mock_usdc(network: str):
     config = NETWORKS.get(network)
     if not config:
         raise ValueError(f"Red no soportada: {network}")
-
     if config["is_mainnet"]:
         confirm = input(f"\n⚠️  Vas a deployar en MAINNET ({network}). ¿Estás seguro? [s/N]: ")
         if confirm.lower() != "s":
@@ -112,7 +109,6 @@ def deploy_mock_usdc(network: str):
     import vyper
     compiled = vyper.compile_code(source, output_formats=["abi", "bytecode"])
     abi, bytecode = compiled["abi"], compiled["bytecode"]
-
     factory = w3.eth.contract(abi=abi, bytecode=bytecode)
 
     # Gas por red
@@ -143,7 +139,6 @@ def deploy_mock_usdc(network: str):
     signed  = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-
     if receipt.status != 1:
         raise Exception("❌ Deploy fallido")
 
@@ -163,6 +158,7 @@ def deploy_mock_usdc(network: str):
     # JSON con datos completos del deploy
     deploy_data = {
         "contract": CONTRACT_NAME,
+        "compiler": f"vyper {vyper.__version__}",
         "address": addr,
         "network": network,
         "chain_id": config["chain_id"],
@@ -175,28 +171,24 @@ def deploy_mock_usdc(network: str):
         "constructor_args": CONSTRUCTOR_ARGS,
         "constructor_args_encoded": encoded,
         "timestamp": ts,
+        "abi": abi,
     }
 
     json_path = output_dir / f"{CONTRACT_NAME}.json"
     json_path.write_text(json.dumps(deploy_data, indent=2))
     print(f"📄 Deploy info: {json_path}")
-
     txt_path = output_dir / f"{CONTRACT_NAME}_constructor_args.txt"
     txt_path.write_text(encoded)
     print(f"📄 Encoded args: {txt_path}")
-
     return deploy_data
-
 
 if __name__ == "__main__":
     valid_networks = list(NETWORKS.keys())
-
     if len(sys.argv) < 2:
         print(f"Uso: python deploy_mock_usdc.py <red>")
         print(f"\nTestnets:  {', '.join(k for k, v in NETWORKS.items() if not v['is_mainnet'])}")
         print(f"Mainnets:  {', '.join(k for k, v in NETWORKS.items() if v['is_mainnet'])}")
         sys.exit(1)
-
     network = sys.argv[1]
     if network not in valid_networks:
         print(f"❌ Red inválida: '{network}'")
