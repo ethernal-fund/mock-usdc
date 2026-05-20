@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator  # ← V2
 from sqlalchemy import insert, select, update, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from web3 import Web3
@@ -53,9 +53,13 @@ def _build_allowed_origins() -> list[str]:
         ]
     return origins
 
+faucet_service = FaucetService()
+rate_limiter   = RateLimiter()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Iniciando {settings.APP_NAME} v{settings.APP_VERSION}")
+    settings.validate_startup()                          # ← valida env vars al arranque
     logger.info(f"Redes activas: {faucet_service.active_networks}")
     logger.info(f"Orígenes CORS: {_build_allowed_origins()}")
     if settings.ENABLE_DB:
@@ -91,25 +95,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-faucet_service = FaucetService()
-rate_limiter   = RateLimiter()
-
-# Modelos 
-
-SUPPORTED_NETWORKS = list(NETWORK_CONFIGS.keys())  # ["sepolia", "arbitrum-sepolia"]
+SUPPORTED_NETWORKS = list(NETWORK_CONFIGS.keys())
 
 class FaucetRequestModel(BaseModel):
     address:         str           = Field(..., description="Dirección Ethereum (0x...)")
     network:         str           = Field(..., description=f"Red destino: {SUPPORTED_NETWORKS}")
     turnstile_token: Optional[str] = Field(None, description="Token Cloudflare Turnstile")
 
-    @validator("address")
+    @field_validator("address")           # ← V2
+    @classmethod
     def validate_address(cls, v: str) -> str:
         if not Web3.is_address(v):
             raise ValueError("Dirección Ethereum inválida")
         return Web3.to_checksum_address(v)
 
-    @validator("network")
+    @field_validator("network")           # ← V2
+    @classmethod
     def validate_network(cls, v: str) -> str:
         if v not in SUPPORTED_NETWORKS:
             raise ValueError(f"Red no soportada. Opciones: {SUPPORTED_NETWORKS}")
@@ -132,16 +133,16 @@ class BlockAddressRequest(BaseModel):
     reason:           str           = Field(..., description="Motivo del bloqueo")
     expires_in_hours: Optional[int] = Field(None, description="Duración en horas (null = permanente)")
 
-    @validator("address_type")
+    @field_validator("address_type")      # ← V2
+    @classmethod
     def validate_type(cls, v: str) -> str:
         if v not in ("wallet", "ip"):
             raise ValueError("address_type debe ser 'wallet' o 'ip'")
         return v
 
+
 class UnblockAddressRequest(BaseModel):
     address_value: str = Field(..., description="Dirección o IP a desbloquear")
-
-# Auth admin 
 
 async def verify_admin_key(request: Request) -> bool:
     if not settings.ADMIN_API_KEY:
@@ -150,8 +151,6 @@ async def verify_admin_key(request: Request) -> bool:
     if api_key != settings.ADMIN_API_KEY:
         raise HTTPException(status_code=403, detail="API key inválida")
     return True
-
-# Helpers
 
 def _get_client_ip(request: Request) -> str:
     """
@@ -170,12 +169,12 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 async def _update_daily_stats(
-    success: bool,
-    rate_limited: bool = False,
-    usdc_amount: float = 0.0,
-    eth_amount: float = 0.0,
+    success:        bool,
+    rate_limited:   bool          = False,
+    usdc_amount:    float         = 0.0,
+    eth_amount:     float         = 0.0,
     wallet_address: Optional[str] = None,
-    ip_address: Optional[str] = None,
+    ip_address:     Optional[str] = None,
 ) -> None:
     """
     Upsert atómico en faucet_stats para el día UTC actual.
@@ -187,7 +186,6 @@ async def _update_daily_stats(
     try:
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         async with get_db() as db:
-            # Crear fila del día si no existe
             await db.execute(
                 pg_insert(FaucetStats)
                 .values(
@@ -204,7 +202,6 @@ async def _update_daily_stats(
                 .on_conflict_do_nothing(index_elements=["date"])
             )
 
-            # Construir incrementos según resultado
             values: dict = {
                 "total_requests": FaucetStats.total_requests + 1,
                 "updated_at":     datetime.utcnow(),
@@ -218,7 +215,6 @@ async def _update_daily_stats(
             else:
                 values["failed_requests"] = FaucetStats.failed_requests + 1
 
-            # Contar wallets e IPs únicas del día desde faucet_requests (fuente de verdad)
             unique_wallets_res = await db.execute(
                 select(func.count(func.distinct(DBFaucetRequest.wallet_address))).where(
                     DBFaucetRequest.created_at >= today
@@ -231,6 +227,7 @@ async def _update_daily_stats(
             )
             values["unique_wallets"] = unique_wallets_res.scalar() or 0
             values["unique_ips"]     = unique_ips_res.scalar() or 0
+
             await db.execute(
                 update(FaucetStats)
                 .where(FaucetStats.date == today)
@@ -238,6 +235,7 @@ async def _update_daily_stats(
             )
     except Exception as e:
         logger.error(f"Error actualizando faucet_stats: {e}", exc_info=True)
+
 
 async def _mark_failed(wallet_address: str, error: str) -> None:
     try:
@@ -252,6 +250,7 @@ async def _mark_failed(wallet_address: str, error: str) -> None:
     except Exception as e:
         logger.error(f"No se pudo marcar como fallida la request de {wallet_address}: {e}")
 
+
 async def _is_blocked(db, address: str, ip: str) -> bool:
     """Verifica si la wallet o IP están en la lista de bloqueos activos."""
     now    = datetime.utcnow()
@@ -264,7 +263,7 @@ async def _is_blocked(db, address: str, ip: str) -> bool:
     )
     return result.scalars().first() is not None
 
-# Endpoints 
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/", tags=["info"])
 async def root():
@@ -280,6 +279,7 @@ async def root():
             "turnstile": settings.TURNSTILE_ENABLED,
         },
     }
+
 
 @app.get("/health", tags=["info"])
 async def health_check():
@@ -315,36 +315,30 @@ async def health_check():
             content={"status": "unhealthy", "error": str(e)},
         )
 
+
 @app.post("/faucet", response_model=FaucetResponse, tags=["faucet"])
 async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
     client_ip = _get_client_ip(request)
     address   = faucet_req.address
     network   = faucet_req.network
 
-    # Verificar que la red esté activa
     try:
         client = faucet_service.get_client(network)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Verificar bloqueos en DB (antes de rate limiting para no gastar recursos)
     if settings.ENABLE_DB:
         async with get_db() as db:
             if await _is_blocked(db, address, client_ip):
                 logger.warning(f"Request bloqueada — wallet: {address} | IP: {client_ip}")
                 raise HTTPException(status_code=403, detail="Dirección o IP bloqueada.")
 
-    # Rate limiting — la key incluye la red para cooldown independiente por chain
     if settings.RATE_LIMIT_ENABLED:
         ip_key         = f"{client_ip}:{network}"
         wallet_key     = f"{address}:{network}"
         ip_ok, ip_wait = rate_limiter.check_ip(ip_key)
         if not ip_ok:
-            await _update_daily_stats(
-                success=False,
-                rate_limited=True,
-                ip_address=client_ip,
-            )
+            await _update_daily_stats(success=False, rate_limited=True, ip_address=client_ip)
             return FaucetResponse(
                 success=False,
                 network=network,
@@ -355,10 +349,8 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
         wallet_ok, wallet_wait = rate_limiter.check_wallet(wallet_key)
         if not wallet_ok:
             await _update_daily_stats(
-                success=False,
-                rate_limited=True,
-                wallet_address=address,
-                ip_address=client_ip,
+                success=False, rate_limited=True,
+                wallet_address=address, ip_address=client_ip,
             )
             return FaucetResponse(
                 success=False,
@@ -367,11 +359,9 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
                 wait_time=wallet_wait,
             )
 
-    # Turnstile
     if settings.TURNSTILE_ENABLED and not faucet_req.turnstile_token:
         raise HTTPException(status_code=400, detail="Token Turnstile requerido")
 
-    # Balance del faucet
     faucet_usdc = client.get_usdc_balance(settings.FAUCET_ADDRESS)
     if faucet_usdc < settings.FAUCET_AMOUNT:
         logger.warning(f"[{client.name}] Balance bajo: {faucet_usdc} USDC")
@@ -380,7 +370,6 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
             detail=f"Faucet de {client.name} sin fondos — contactar al equipo de Ethernal",
         )
 
-    # Registro inicial en DB
     if settings.ENABLE_DB:
         async with get_db() as db:
             await db.execute(
@@ -393,7 +382,6 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
                 )
             )
 
-    # Envío de USDC
     try:
         tx_hash = faucet_service.send_tokens(address, settings.FAUCET_AMOUNT, network)
         logger.info(f"[{client.name}] USDC → {address} | tx: {tx_hash} | IP: {client_ip}")
@@ -403,7 +391,7 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
             await _mark_failed(address, str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Envío de ETH (best-effort, no falla el request si falta balance)
+    # ETH — best-effort, no falla el request si no hay balance
     eth_tx_hash: Optional[str] = None
     eth_amount = client.eth_amount
     try:
@@ -412,11 +400,9 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
     except Exception as e:
         logger.error(f"[{client.name}] ETH send FALLÓ para {address}: {e}")
 
-    # Registrar rate limit
     if settings.RATE_LIMIT_ENABLED:
         rate_limiter.record_request(ip_key, wallet_key)
 
-    # Actualizar DB con resultado final
     if settings.ENABLE_DB:
         async with get_db() as db:
             await db.execute(
@@ -430,8 +416,6 @@ async def request_tokens(request: Request, faucet_req: FaucetRequestModel):
                     completed_at=datetime.utcnow(),
                 )
             )
-
-        # Actualizar estadísticas diarias
         await _update_daily_stats(
             success=True,
             usdc_amount=settings.FAUCET_AMOUNT,
@@ -517,8 +501,6 @@ async def get_stats():
         logger.error(f"Stats fallidas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Admin endpoints 
-
 @app.get("/admin/stats", dependencies=[Depends(verify_admin_key)], tags=["admin"])
 async def admin_stats():
     if not settings.ENABLE_DB:
@@ -532,12 +514,12 @@ async def admin_stats():
         )
         by_status = dict(by_status_res.all())
 
-        # Estadísticas del día actual desde faucet_stats
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         today_res = await db.execute(
             select(FaucetStats).where(FaucetStats.date == today)
         )
         today_stats = today_res.scalars().first()
+
     networks_bal = {}
     for net_key in faucet_service.active_networks:
         client = faucet_service.get_client(net_key)
@@ -582,15 +564,15 @@ async def admin_daily_stats(days: int = 30):
         "days": days,
         "stats": [
             {
-                "date":                    r.date.date().isoformat(),
-                "total_requests":          r.total_requests,
-                "successful_requests":     r.successful_requests,
-                "failed_requests":         r.failed_requests,
-                "rate_limited_requests":   r.rate_limited_requests,
-                "total_usdc_distributed":  float(r.total_usdc_distributed),
-                "total_eth_distributed":   float(r.total_eth_distributed),
-                "unique_wallets":          r.unique_wallets,
-                "unique_ips":              r.unique_ips,
+                "date":                   r.date.date().isoformat(),
+                "total_requests":         r.total_requests,
+                "successful_requests":    r.successful_requests,
+                "failed_requests":        r.failed_requests,
+                "rate_limited_requests":  r.rate_limited_requests,
+                "total_usdc_distributed": float(r.total_usdc_distributed),
+                "total_eth_distributed":  float(r.total_eth_distributed),
+                "unique_wallets":         r.unique_wallets,
+                "unique_ips":             r.unique_ips,
             }
             for r in rows
         ],
@@ -639,7 +621,6 @@ async def block_address(body: BlockAddressRequest):
     address_value = body.address_value.lower()
     try:
         async with get_db() as db:
-            # Verificar si ya existe para evitar duplicados
             existing = await db.execute(
                 select(BlockedAddress).where(
                     BlockedAddress.address_value == address_value
@@ -647,15 +628,10 @@ async def block_address(body: BlockAddressRequest):
             )
             existing_row = existing.scalars().first()
             if existing_row:
-                # Reactivar y actualizar si ya estaba bloqueada (o desbloqueada)
                 await db.execute(
                     update(BlockedAddress)
                     .where(BlockedAddress.address_value == address_value)
-                    .values(
-                        is_active=True,
-                        reason=body.reason,
-                        expires_at=expires_at,
-                    )
+                    .values(is_active=True, reason=body.reason, expires_at=expires_at)
                 )
                 action = "reactivated"
             else:
@@ -737,8 +713,6 @@ async def list_blocked(active_only: bool = True):
         ],
     }
 
-# Exception handler global 
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Excepción no manejada: {exc}", exc_info=True)
@@ -746,6 +720,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Error interno del servidor"},
     )
+
 
 if __name__ == "__main__":
     import uvicorn
